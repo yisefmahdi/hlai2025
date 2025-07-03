@@ -623,14 +623,53 @@ def generate_response(relevant_text, question, question_type, selectedModel, sel
 
         return full_response
 
+# def clean_text(text):
+#     # تحويل النص إلى أحرف صغيرة
+#     text = text.lower()
+#     # الحفاظ على الأرقام التي تحتوي على فواصل عشرية
+#     text = re.sub(r'(?<=\d),(?=\d)', '،', text)  # استبدال الفواصل العشرية بفواصل عربية
+#     # إزالة أي رموز غير مرغوب بها باستثناء علامات الترقيم الأساسية
+#     text = re.sub(r'[^\w\s\.,،\؟\!]', '', text)
+#     return text.strip()
+
 def clean_text(text):
     # تحويل النص إلى أحرف صغيرة
     text = text.lower()
-    # الحفاظ على الأرقام التي تحتوي على فواصل عشرية
-    text = re.sub(r'(?<=\d),(?=\d)', '،', text)  # استبدال الفواصل العشرية بفواصل عربية
-    # إزالة أي رموز غير مرغوب بها باستثناء علامات الترقيم الأساسية
+
+    # إزالة التشكيل (الحركات مثل ً ُ ِّ ٌ َ)
+    text = re.sub(r'[\u064B-\u0652]', '', text)
+
+    # استبدال الفاصلة العشرية بفاصلة عربية (3,5 → 3،5)
+    text = re.sub(r'(?<=\d),(?=\d)', '،', text)
+
+    # إزالة رموز غير مرغوبة (مثل ﴾، ﷺ، ۞)
     text = re.sub(r'[^\w\s\.,،\؟\!]', '', text)
-    return text.strip()
+
+    # إزالة الرموز التعبيرية والـ Unicode الزخرفي
+    emoji_pattern = re.compile("["
+        u"\U0001F600-\U0001F64F"  # وجوه تعبيرية
+        u"\U0001F300-\U0001F5FF"  # رموز متنوعة
+        u"\U0001F680-\U0001F6FF"  # مركبات وطائرات
+        u"\U0001F1E0-\U0001F1FF"  # أعلام دول
+        u"\U00002500-\U00002BEF"  # أشكال ورموز
+        u"\U00002702-\U000027B0"
+        u"\U000024C2-\U0001F251"
+        u"\U0001f926-\U0001f937"
+        u"\u200d"
+        u"\u2640-\u2642"
+        u"\u2600-\u2B55"
+        u"\u23cf"
+        u"\u23e9"
+        u"\u231a"
+        u"\ufe0f"  # تنسيقات إضافية
+        u"\u3030"
+        "]+", flags=re.UNICODE)
+    text = emoji_pattern.sub(r'', text)
+
+    # إزالة الفراغات الزائدة
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    return text
 
 def analyze_question(question):
     question = clean_text(question)
@@ -654,6 +693,7 @@ def analyze_question(question):
         return "long_answer"
 
 def retrieve_relevant_text(question, book_content, word_limit, min_similarity=0.1):
+    question = clean_text(question)
     # التحقق من عدد الكلمات في النص بالكامل
     if len(book_content.split()) <= word_limit:
         return book_content
