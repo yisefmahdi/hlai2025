@@ -105,7 +105,7 @@ def ask():
     file_name = data.get('file_name')
 
     max_tokens = int(max_tokens)
-    word_limit = 870
+    word_limit = 890
 
     if not question:  # التأكد من وجود السؤال
         return jsonify({"error": "Please enter a message"}), 400
@@ -253,14 +253,14 @@ def upload_file():
 
 
 def generate_response(relevant_text, question, question_type, selectedModel, selectedCompany, chat_id, chat_type, max_tokens, files=None, file_type=None, file_name=None,target_language=None, field=None, pages=None, methodology=None,target_audience=None,citation_style=None, structure=None,include_summary=None, academic_language_level=None, include_lit_review=None, start_year=None, end_year=None, references_count=None):
-    # prompt = f" انت خبير اكاديمي اقرأ الكتاب التالي وأجب فقط باستخدام المعلومات من الكتاب :\n\n{relevant_text}\n\nالسؤال: {question}"
-    prompt = f"""
-        انت خبير أكاديمي، اقرأ الكتاب التالي وأجب فقط باستخدام المعلومات من الكتاب.\n"
-        -  باستخدام قوانين، أو علاقات، أو تعاريف وردت في الكتاب (ولو دون أمثلة).\n"
-        - شرح أو تفسيرات يمكن من خلالها بناء منطق واضح للوصول إلى الجواب.\n\n"
-        {relevant_text}\n\n"
-        السؤال: {question}"
-    """
+    prompt = f" انت خبير اكاديمي اقرأ الكتاب التالي وأجب فقط باستخدام المعلومات من الكتاب :\n\n{relevant_text}\n\nالسؤال: {question}"
+    # prompt = f"""
+    #     انت خبير أكاديمي، اقرأ الكتاب التالي وأجب فقط باستخدام المعلومات من الكتاب.\n"
+    #     -  باستخدام قوانين، أو علاقات، أو تعاريف وردت في الكتاب (ولو دون أمثلة).\n"
+    #     - شرح أو تفسيرات يمكن من خلالها بناء منطق واضح للوصول إلى الجواب.\n\n"
+    #     {relevant_text}\n\n"
+    #     السؤال: {question}"
+    # """
 
     if chat_type == "chatbook":
         if question_type == "boolean":
@@ -692,10 +692,64 @@ def analyze_question(question):
     else:
         return "long_answer"
 
-def retrieve_relevant_text(question, book_content, word_limit, min_similarity=0.1):
+# def retrieve_relevant_text(question, book_content, word_limit, min_similarity=0.1):
+#     question = clean_text(question)
+#     # التحقق من عدد الكلمات في النص بالكامل
+#     if len(book_content.split()) <= word_limit:
+#         return book_content
+
+#     # تقسيم النص إلى جمل
+#     sentences = re.split(r'(?<=[\.،\؟\!])\s+', book_content)
+#     if not sentences:
+#         return "النص فارغ أو لا يحتوي على جمل مفهومة."
+
+#     # حساب التشابه باستخدام TF-IDF
+#     vectorizer = TfidfVectorizer(ngram_range=(1, 3))  # نطاق n-grams محدود للتشابه الأقل
+#     vectors = vectorizer.fit_transform([question] + sentences)
+#     cosine_similarities = cosine_similarity(vectors[0:1], vectors[1:]).flatten()
+
+#     # ترتيب الجمل بناءً على التشابه
+#     sorted_indices = cosine_similarities.argsort()[::-1]
+#     selected_sentences = []
+#     total_words = 0
+
+#     for index in sorted_indices:
+#         sentence = sentences[index]
+#         similarity_score = cosine_similarities[index]
+
+#         # التحقق من درجة التشابه الدنيا
+#         if similarity_score < min_similarity:
+#             break
+
+#         sentence_word_count = len(sentence.split())
+
+#         # التوقف إذا تم الوصول إلى الحد الأقصى للكلمات
+#         if total_words + sentence_word_count > word_limit:
+#             break
+
+#         selected_sentences.append(sentence)
+#         total_words += sentence_word_count
+
+#     # إذا كانت النتيجة غير كافية، يتم إضافة جمل أقل تشابهًا حتى الوصول للحد المطلوب
+#     if total_words < word_limit:
+#         for index in sorted_indices[len(selected_sentences):]:
+#             sentence = sentences[index]
+#             sentence_word_count = len(sentence.split())
+
+#             if total_words + sentence_word_count > word_limit:
+#                 break
+
+#             selected_sentences.append(sentence)
+#             total_words += sentence_word_count
+
+#     return ' '.join(selected_sentences) if selected_sentences else "لا توجد جمل مشابهة كافية للإجابة على السؤال."
+
+
+def retrieve_relevant_text(question, book_content, word_limit, min_similarity=0.1, context_window=5):
     question = clean_text(question)
-    # التحقق من عدد الكلمات في النص بالكامل
-    if len(book_content.split()) <= word_limit:
+    words_total = len(book_content.split())
+
+    if words_total <= word_limit:
         return book_content
 
     # تقسيم النص إلى جمل
@@ -704,45 +758,59 @@ def retrieve_relevant_text(question, book_content, word_limit, min_similarity=0.
         return "النص فارغ أو لا يحتوي على جمل مفهومة."
 
     # حساب التشابه باستخدام TF-IDF
-    vectorizer = TfidfVectorizer(ngram_range=(1, 3))  # نطاق n-grams محدود للتشابه الأقل
+    vectorizer = TfidfVectorizer(ngram_range=(1, 3))
     vectors = vectorizer.fit_transform([question] + sentences)
     cosine_similarities = cosine_similarity(vectors[0:1], vectors[1:]).flatten()
 
-    # ترتيب الجمل بناءً على التشابه
+    # ترتيب الجمل حسب التشابه
     sorted_indices = cosine_similarities.argsort()[::-1]
-    selected_sentences = []
+    selected_indices = set()
     total_words = 0
+    selected_sentences = []
 
     for index in sorted_indices:
-        sentence = sentences[index]
         similarity_score = cosine_similarities[index]
-
-        # التحقق من درجة التشابه الدنيا
         if similarity_score < min_similarity:
+            break  # الجمل الأقل تشابهًا لا تُوسع
+
+        # إضافة سياق قبل وبعد الجملة
+        start = max(0, index - context_window)
+        end = min(len(sentences), index + context_window + 1)
+
+        for i in range(start, end):
+            if i not in selected_indices:
+                sentence_word_count = len(sentences[i].split())
+                if total_words + sentence_word_count > word_limit:
+                    break
+                selected_sentences.append(sentences[i])
+                selected_indices.add(i)
+                total_words += sentence_word_count
+
+        if total_words >= word_limit:
             break
 
-        sentence_word_count = len(sentence.split())
-
-        # التوقف إذا تم الوصول إلى الحد الأقصى للكلمات
-        if total_words + sentence_word_count > word_limit:
-            break
-
-        selected_sentences.append(sentence)
-        total_words += sentence_word_count
-
-    # إذا كانت النتيجة غير كافية، يتم إضافة جمل أقل تشابهًا حتى الوصول للحد المطلوب
+    # إذا لم نصل للحد المطلوب، نضيف جمل أقل تشابهًا كما هي
     if total_words < word_limit:
-        for index in sorted_indices[len(selected_sentences):]:
-            sentence = sentences[index]
-            sentence_word_count = len(sentence.split())
-
+        for index in sorted_indices:
+            if index in selected_indices:
+                continue
+            sentence_word_count = len(sentences[index].split())
             if total_words + sentence_word_count > word_limit:
                 break
-
-            selected_sentences.append(sentence)
+            selected_sentences.append(sentences[index])
+            selected_indices.add(index)
             total_words += sentence_word_count
 
     return ' '.join(selected_sentences) if selected_sentences else "لا توجد جمل مشابهة كافية للإجابة على السؤال."
+
+
+
+
+
+
+
+
+
 
 def upload_to_gemini(path, mime_type=None):
   """Uploads the given file to Gemini.
@@ -1032,5 +1100,3 @@ def extract_text_from_code(file_path):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0',port=5002)
-
-
