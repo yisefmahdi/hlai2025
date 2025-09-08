@@ -1,7 +1,7 @@
 Flask
 Flask-Cors
 scikit-learn
-openai==0.28.0
+openai==1.106.1
 google-generativeai
 tiktoken
 python-docx
