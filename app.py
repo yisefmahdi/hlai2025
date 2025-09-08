@@ -3,7 +3,7 @@ import re
 from flask import Flask, request, jsonify
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import openai
+from openai import OpenAI
 import google.generativeai as genai
 from flask_cors import CORS
 import tiktoken
@@ -64,7 +64,9 @@ valid_doc_extensions_file_type = [
     # ملفات التصميم
     'css', 'scss', 'sass', 'less', 'styl'
 ]
-
+@app.route('/', methods=['GET'])
+def index():
+    return jsonify({"message": "Welcome to the chatbot API!"})
 @app.route('/ask', methods=['POST'])
 def ask():
     data = request.json
@@ -128,7 +130,6 @@ def ask():
             memory_status = "Normal - Memory is operating normally"
         else:
             memory_status = "Normal"
-
 
     elif chat_type == "translation":
         relevant_text = ""
@@ -392,7 +393,7 @@ def generate_response(relevant_text, question, question_type, selectedModel, sel
             - 🧱 عناصر البحث الأساسية: {structure}
             - 📌 نمط التوثيق: {citation_style}
             - 🔢 عدد المراجع المطلوبة: {references_count}
-           - 📅 حداثة المراجع: من {start_year} إلى {end_year}
+            - 📅 حداثة المراجع: من {start_year} إلى {end_year}
             - 🗃️ هل تتضمن مراجعة أدبية؟ {'نعم' if include_lit_review else 'لا'}
             - 📑 هل يتضمن ملخصًا تنفيذيًا؟ {'نعم' if include_summary else 'لا'}
             - 🌐 لغة البحث: {academic_language_level}
@@ -410,13 +411,11 @@ def generate_response(relevant_text, question, question_type, selectedModel, sel
 
             ابدأ الآن في كتابة البحث بناءً على ما سبق:
             """
-
-
     else:
         prompt = question
 
-
     response = ""
+
     """
     دالة لمعالجة المحادثة باستخدام منصة OpenAI أو Gemini بناءً على إعدادات المستخدم.
     """
@@ -430,10 +429,11 @@ def generate_response(relevant_text, question, question_type, selectedModel, sel
 
     if selectedCompany.get('name') == "Open Ai":
         # إعداد المفتاح API للنموذج
-        openai.api_key = api_key
-        openai.api_base = base_url
-        # تحديد مسار الصورة (إذا كانت موجودة)
-        # image_url = upload_to_openai("",  api_key=api_key)
+        # إعداد العميل
+        client = OpenAI(
+            base_url=base_url,  # أو تركه الافتراضي إذا OpenAI الرسمي
+            api_key=api_key,
+        )
 
         try:
                 # إذا كانت الصورة موجودة أو لا، يتم إرسال الرسالة فقط
@@ -458,37 +458,38 @@ def generate_response(relevant_text, question, question_type, selectedModel, sel
                     return response # حالة "over Full"
                 else:
                     # استخدام واجهة API الجديدة مع سجل المحادثة
-                    stream = openai.ChatCompletion.create(
-                        temperature=0.2,
-                        top_p=1.0,
+                    stream = client.chat.completions.create(
                         model=model_key,
                         messages=updated_history,
                         max_tokens=output_tokens,
-                        stream=True
+                        stream=False,
+                        temperature=0.2,
+                        top_p=1.0,
                     )
 
             elif chat_type == "academic_research_writing":
                # استخدام واجهة API الجديدة بدون سجل المحادثة
-                stream = openai.ChatCompletion.create(
+                stream = client.chat.completions.create(
                     model=model_key,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=8096,
-                    stream=True
+                    stream=False,
+                    temperature=0.2,
+                    top_p=1.0,
                 )
 
             else:
                 # استخدام واجهة API الجديدة بدون سجل المحادثة
-                stream = openai.ChatCompletion.create(
+                stream = client.chat.completions.create(
                     model=model_key,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=output_tokens,
-                    stream=True
+                    stream=False,
+                    temperature=0.2,
+                    top_p=1.0,
                 )
 
-            # معالجة البيانات المستلمة من البث (stream)
-            for chunk in stream:
-                if chunk.get('choices') and chunk['choices'][0].get('delta') and chunk['choices'][0]['delta'].get('content'):
-                    response += chunk['choices'][0]['delta']['content']  # إضافة الاستجابة المتلقاة
+            response = stream.choices[0].message.content.strip()
 
             if chat_type == "chat":
                 # إضافة استجابة النموذج إلى سجل المحادثة
@@ -501,136 +502,7 @@ def generate_response(relevant_text, question, question_type, selectedModel, sel
 
         return response
 
-    elif selectedCompany.get('name') == "Gemini":
-        # تهيئة API مع المفتاح
-        genai.configure(api_key=api_key)
-        if files != None and file_type == 'png' or file_type == 'jpg' or file_type == 'jpeg':
-            files = upload_to_gemini(files, mime_type="image/jpeg"),
-
-        # تكوين إعدادات التوليد
-        generation_config = {
-            "temperature": 0.2,
-            "top_p": 1.0,
-            "top_k": 40,
-            "max_output_tokens": output_tokens,
-            "response_mime_type": "text/plain",
-        }
-
-        # تحديد النموذج التوليدي
-        model = genai.GenerativeModel(
-            model_name=model_key,
-            generation_config=generation_config
-        )
-
-        if chat_type == "chat":
-            # تحديث سجل المحادثة باستخدام دالة الذاكرة لمنصة Gemini
-            updated_history, memory_error = update_conversation_history(chat_id, prompt, max_tokens, "gemini", files, file_type, file_name)
-
-            # تحقق إذا كانت الذاكرة ممتلئة
-            if memory_error:
-                return memory_error  # إرجاع رسالة توضح أن الذاكرة ممتلئة
-            # حساب حالة الذاكرة
-            total_tokens = calculate_tokens_for_memory(chat_id)  # استبدال هذه الدالة بحساب التوكينات المناسب
-            total_tokens = int(total_tokens)
-
-            if total_tokens > max_tokens:  # إذا كانت الذاكرة فوق الحد الأقصى
-                response = "Memory is full. Please delete the memory or start a new chat."
-                return response
-            else:
-                # بدء جلسة المحادثة مع السجل المحدث
-                chat_session = model.start_chat(history=updated_history["contents"])
-        else:
-
-            chat_session = model.start_chat(history=[{
-                "role": "user",
-                "parts": [prompt],
-            }])
-
-        # إرسال الرسالة في المحادثة
-        try:
-            # إرسال الرسالة للحصول على الاستجابة
-            response_obj = chat_session.send_message(prompt)
-
-            # إذا كانت الاستجابة تحتوي على نص، نضيفه
-            if hasattr(response_obj, 'text'):
-                response = response_obj.text  # استخدام الرد المستلم من النموذج
-
-            # التحقق من وجود خاصية is_final (إذا كانت موجودة في الاستجابة)
-            if hasattr(response_obj, 'is_final') and response_obj.is_final:
-                return None
-
-            # إذا كانت المحادثة من نوع 'chat'، نحدث سجل المحادثة بالرد
-            if chat_type == "chat":
-                updated_history, memory_error = update_conversation_history(chat_id, response, max_tokens, "gemini")
-                if memory_error:
-                    return memory_error  # إرجاع رسالة توضح أن الذاكرة ممتلئة
-
-        except Exception as e:
-            response = f"حدث خطأ غير متوقع: {str(e)}"
-
-        return response
-    else:
-
-        url = base_url
-        api_key = api_key
-
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-
-        if chat_type == "chat":
-            # إذا لم تكن الصورة موجودة، نرسل الرسالة فقط بدون رابط الصورة
-            updated_history, memory_error = update_conversation_history(chat_id, prompt, max_tokens, "openai")
-            # تحقق إذا كانت الذاكرة ممتلئة
-            if memory_error:
-                return memory_error  # إرجاع رسالة توضح أن الذاكرة ممتلئة
-        else:
-            updated_history = [{"role": "user", "content": prompt}]
-
-        data = {
-            "model": model_key,
-            "messages": updated_history,
-            "max_tokens": output_tokens,
-            "temperature": 0.2,
-            "top_p": 1.0,
-            "top_k": 100,
-            "repetition_penalty": 1,
-            "stop": ["<|eot_id|>", "<|eom_id|>"],
-            "stream": True
-        }
-
-        response = requests.post(url, headers=headers, data=json.dumps(data), stream=True)
-
-        full_response = ""
-        for chunk in response.iter_lines():
-            if chunk:
-                line = chunk.decode('utf-8')
-                if line.startswith("data: "):
-                    line = line[6:]
-                try:
-                    chunk_data = json.loads(line)
-                    # التحقق من أن "choices" تحتوي على عناصر قبل الوصول إليها
-                    if "choices" in chunk_data and len(chunk_data["choices"]) > 0 and "delta" in chunk_data["choices"][0]:
-                        content = chunk_data["choices"][0]["delta"].get("content", "")
-                        full_response += content
-                except json.JSONDecodeError as e:
-                    er = f"Error decoding JSON: {e}"
-
-        if chat_type == "chat":
-            # إضافة استجابة النموذج إلى سجل المحادثة
-            conversation_history_dict[chat_id].append({"role": "assistant", "content": full_response})
-
-        return full_response
-
-# def clean_text(text):
-#     # تحويل النص إلى أحرف صغيرة
-#     text = text.lower()
-#     # الحفاظ على الأرقام التي تحتوي على فواصل عشرية
-#     text = re.sub(r'(?<=\d),(?=\d)', '،', text)  # استبدال الفواصل العشرية بفواصل عربية
-#     # إزالة أي رموز غير مرغوب بها باستثناء علامات الترقيم الأساسية
-#     text = re.sub(r'[^\w\s\.,،\؟\!]', '', text)
-#     return text.strip()
+# =========================================================
 
 def clean_text(text):
     # تحويل النص إلى أحرف صغيرة
@@ -671,6 +543,8 @@ def clean_text(text):
 
     return text
 
+# =========================================================
+
 def analyze_question(question):
     question = clean_text(question)
     if re.search(r'\b(هل|أليس|هل تعتبر|هل يمكن|صحيح أم خطأ|هل هذا|boolean)\b', question):
@@ -691,6 +565,8 @@ def analyze_question(question):
         return "ai"
     else:
         return "long_answer"
+
+# =========================================================
 
 # def retrieve_relevant_text(question, book_content, word_limit, min_similarity=0.1):
 #     question = clean_text(question)
@@ -743,7 +619,6 @@ def analyze_question(question):
 #             total_words += sentence_word_count
 
 #     return ' '.join(selected_sentences) if selected_sentences else "لا توجد جمل مشابهة كافية للإجابة على السؤال."
-
 
 def retrieve_relevant_text(question, book_content, word_limit, min_similarity=0.1, context_window=5):
     question = clean_text(question)
@@ -803,46 +678,6 @@ def retrieve_relevant_text(question, book_content, word_limit, min_similarity=0.
 
     return ' '.join(selected_sentences) if selected_sentences else "لا توجد جمل مشابهة كافية للإجابة على السؤال."
 
-
-
-
-
-
-
-
-
-
-def upload_to_gemini(path, mime_type=None):
-  """Uploads the given file to Gemini.
-
-  See https://ai.google.dev/gemini-api/docs/prompting_with_media
-  """
-  file = genai.upload_file(path, mime_type=mime_type)
-  return file
-
-def upload_to_openai(path, api_key=""):
-    """يرتفع بالصورة إلى OpenAI باستخدام API المناسب"""
-    openai.api_key = api_key
-
-    if not os.path.exists(path):
-        return None
-
-    with open(path, "rb") as file:
-        try:
-            # رفع الصورة إلى OpenAI
-            response = openai.Image.create(file=file, purpose='answers')
-
-            if 'data' in response and len(response['data']) > 0:
-                file_url = response['data'][0]['url']
-                return file_url
-            else:
-                return None
-
-        except openai.error.APIError as e:
-            return None
-        except Exception as e:
-            return None
-
 # إنشاء الترميز المناسب (اختياري: يمكنك اختيار الترميز المناسب حسب النموذج مثل "gpt-4")
 encoding = tiktoken.get_encoding("cl100k_base")  # يمكنك تعديل الترميز حسب الحاجة
 
@@ -890,7 +725,6 @@ def update_conversation_history(chat_id, user_message, max_tokens, platform, fil
         # تحديث عدد الرموز بعد الحذف
         total_tokens = calculate_tokens(conversation_history_dict[chat_id])
 
-
     # إضافة الرسالة الجديدة
     if platform == "openai":
         if files:
@@ -901,35 +735,10 @@ def update_conversation_history(chat_id, user_message, max_tokens, platform, fil
                 content_file = process_file(files)
                 user_message += "Name File: "+file_name+" content File:" + content_file +" "+ user_message
                 conversation_history_dict[chat_id].append({"role": "user", "content": user_message})
-
             else:
                 conversation_history_dict[chat_id].append({"role": "user", "content": "No content found in file"+ user_message})
         else:
             conversation_history_dict[chat_id].append({"role": "user", "content": user_message})
-    elif platform == "gemini":
-        if files:
-            if file_type in valid_image_extensions_file_type:
-                conversation_history_dict[chat_id].append({
-                    "role": "user",
-                    "parts": [files[0], {"text": user_message}]
-                })
-            elif file_type in valid_doc_extensions_file_type:  # نفس الشيء هنا باستخدام "in"
-                content_file = process_file(files)
-                user_message += "Name File: "+file_name+" content File: " + content_file + user_message
-                conversation_history_dict[chat_id].append({
-                    "role": "user",
-                    "parts": [{"text": user_message}]
-                })
-            else:
-                conversation_history_dict[chat_id].append({
-                    "role": "user",
-                    "parts": [{"text":"No content found in file"+ user_message}]
-                })
-        else:
-            conversation_history_dict[chat_id].append({
-                "role": "user",
-                "parts": [{"text": user_message}]
-            })
 
     # طباعة الحالة النهائية
     total_tokens = calculate_tokens(conversation_history_dict[chat_id])
@@ -937,20 +746,7 @@ def update_conversation_history(chat_id, user_message, max_tokens, platform, fil
     # معالجة الرسائل للمنصات المختلفة
     if platform == "openai":
         return conversation_history_dict[chat_id], None
-    elif platform == "gemini":
-        gemini_history = []
-        for msg in conversation_history_dict[chat_id]:
-            if 'content' in msg:
-                gemini_history.append({
-                    "role": msg['role'],
-                    "parts": [{"text": msg["content"]}]
-                })
-            elif 'parts' in msg:
-                gemini_history.append({
-                    "role": msg['role'],
-                    "parts": msg["parts"]
-                })
-        return {"contents": gemini_history}, None
+
     else:
         return None, "منصة غير مدعومة."
 
@@ -1094,9 +890,6 @@ def extract_text_from_code(file_path):
         return text
     except Exception as e:
         return f"Error reading code file: {str(e)}"
-
-
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0',port=5002)
